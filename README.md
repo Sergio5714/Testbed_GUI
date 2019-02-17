@@ -15,4 +15,3 @@ The repo contains software that provides a comfortable graphic user interface fo
 **The screenshot:**
 
 ![Screensheot](https://github.com/Sergio5714/Testbed_GUI/blob/master/Images/Screenshot.PNG)
-Tkinter is used as a framework for GUI. The figures are powered by matplotlib library.
