@@ -3,11 +3,11 @@
 
 **Author: Sergei Vostrikov**
 
-This repo contains software that provides comfortable graphic user interface for an experimental tested. For more detailed description of the testbed refer to [pdf file](https://github.com/Sergio5714/experimental-teg-testbed-firmware/blob/master/docs/Description_experimental_teg_testbed.pdf).
+The repo contains software that provides a comfortable graphic user interface for an experimental tested. For more detailed description of the testbed refer to [pdf file](https://github.com/Sergio5714/experimental-teg-testbed-firmware/blob/master/docs/Description_experimental_teg_testbed.pdf).
 
 **It enables:**
 * Real-time data visialization;
-* Saving data to file;
+* Saving data to a file;
 * Temperature stabilization control;
 
 **Used technologies/tools:** Python, Tkinter, Matplotlib, Pycharm.
