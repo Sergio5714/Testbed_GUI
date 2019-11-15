@@ -230,7 +230,7 @@ class App:
 
         # Create canvas
         self.canvas_graph_1 = FigureCanvasTkAgg(self.figure_1, self.graph_container_1)
-        self.canvas_graph_1.show()
+        self.canvas_graph_1.draw()
 
         # Create widget
         self.graph_1_widget = self.canvas_graph_1.get_tk_widget()
@@ -245,7 +245,7 @@ class App:
         # Initial values
         self.res_1_value = 0
         self.res_2_value = 0
-        self.entry_COM.insert(0, "COM5")
+        self.entry_COM.insert(0, "Write serial port")
         self.entry_res_1.insert(0, "0.0")
         self.entry_res_2.insert(0, "0.0")
 
@@ -388,7 +388,7 @@ class App:
 
     def button_start_stop_callback(self, arg2):
         if self.button_start_stop['text'] == "Start":
-            self.protocol = STMprotocol('COM5')
+            self.protocol = STMprotocol(self.entry_COM.get())
             self.button_start_stop['text'] = "Stop"
             self.res_1_value = float(self.entry_res_1.get())
             self.res_2_value = float(self.entry_res_2.get())
