@@ -11,6 +11,10 @@ import serial
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+import visa
+import queue as Queue
+import threading
+
 if sys.version_info[0] < 3:
     import Tkinter as tk
 else:
@@ -45,7 +49,7 @@ class STMprotocol:
         # print(self.ser.read(self.ser.in_waiting))
 
         parameters = bytearray(struct.pack(self.pack_format[cmd], *args))
-        print(parameters)
+        # print(parameters)
         msg_len = len(parameters) + 5
         msg = bytearray([0xfa, 0xaf, msg_len, cmd]) + parameters
         crc = sum(msg) % 256
@@ -73,6 +77,67 @@ class STMprotocol:
 
         args = struct.unpack(self.unpack_format[cmd], answer[1:-1])
         return args
+
+class SmuThreadedTask(threading.Thread):
+    def __init__(self, queue):
+        threading.Thread.__init__(self)
+        self.queue = queue
+
+        # Set up smu
+        self.rm = visa.ResourceManager()
+        self.smu = self.rm.open_resource('USB0::0x0957::0x4318::MY51070004::0::INSTR')
+        self.smu_volt = '0'
+        self.smu_curr = '0'
+        self.pause = True
+        self.setup_smu()
+
+
+    def setup_smu(self):
+        # Full setup
+        print("SMU setup...")
+
+        print("Set volatge range: ", self.smu.write("VOLT:RANG R20V, (@1)"))
+        print("Get voltage range: ", self.smu.query("VOLT:RANG? (@1)"))
+
+        print("Set current range: ", self.smu.write("CURR:RANG R1mA, (@1)"))
+        print("Get current range: ", self.smu.query("CURR:RANG? (@1)"))
+
+        print("Set current limit: ", self.smu.write("CURR:LIM 0.001, (@1)"))
+        print("Get current limit: ", self.smu.query("CURR:LIM? (@1)"))
+
+        print("Set NPLC: ", self.smu.write("SENS:VOLT:NPLC 50, (@1)"))
+        print("Get NPLC: ", self.smu.query("SENS:VOLT:NPLC? (@1)"))
+
+        print("Source voltage...")
+
+        print("Source voltage: ", self.smu.write("VOLT 4.1, (@1)"))
+        print("Get sourced voltage: ", self.smu.query("VOLT? (@1)"))
+
+        print("Enable output...")
+        print("Enable output: ", self.smu.write("OUTP 1, (@1)"))
+        print("Is output enabled: ", self.smu.query("OUTP? (@1)"))
+
+    def pause_smu(self):
+        self.pause = True
+
+    def resume_smu(self):
+        self.pause = False
+
+    def smu_measure(self):
+        self.smu_volt = self.smu.query("MEAS:VOLT? (@1)")[:-2]
+        self.smu_curr = self.smu.query("MEAS:CURR? (@1)")[:-2]
+
+    def close_smu(self):
+        self.smu.close()
+        print("SMU closed.")
+
+    def run(self):
+        while True:
+            if self.pause is False:
+                self.smu_measure()
+                self.queue.put([self.smu_volt, self.smu_curr])
+            else:
+                time.sleep(0.1)
 
 
 class App:
@@ -219,8 +284,9 @@ class App:
 
         # Create a figure
         self.figure_1 = Figure(figsize=(16, 5), dpi=100)
-        self.axes_1 = self.figure_1.add_subplot(121)
-        self.axes_2 = self.figure_1.add_subplot(122)
+        self.axes_1 = self.figure_1.add_subplot(131)
+        self.axes_2 = self.figure_1.add_subplot(132)
+        self.axes_3 = self.figure_1.add_subplot(133)
 
         # Create containers for graphs
         self.graph_container_1 = Frame(self.master)
@@ -250,7 +316,7 @@ class App:
         self.entry_res_2.insert(0, "0.0")
 
         # Animation
-        self.ani = animation.FuncAnimation(self.figure_1, self.animate, interval=1000)
+        self.ani = animation.FuncAnimation(self.figure_1, self.animate, interval=2000)
 
         # Pause
         self.pause = True
@@ -261,6 +327,19 @@ class App:
                            'R_tem': 54.06 / 2}
 
         self.voltage_prediction = [0, 0]
+
+        self.queue = Queue.Queue()
+        self.smu_thread = SmuThreadedTask(self.queue)
+        self.smu_thread.start()
+        self.msg = []
+
+    def process_data_from_smu(self):
+        try:
+            self.msg = self.queue.get(0)
+            # Show result of the task if needed
+            print("Data from SMU")
+        except Queue.Empty:
+            print("No new data from SMU")
 
     def calc_therm_res(self, R_tem, alpha, T, r_load, r_tem):
         R = R_tem / (1 + R_tem * alpha ** 2 * T / (r_load + r_tem)) + 1
@@ -287,6 +366,7 @@ class App:
     def animate(self, arg2):
         if self.pause is False:
             self.get_data(self)
+            self.process_data_from_smu()
             file = open(self.data_file_name, 'r')
             n = 60 * 10
             pull_data = self.tail(file, n)
@@ -388,6 +468,7 @@ class App:
 
     def button_start_stop_callback(self, arg2):
         if self.button_start_stop['text'] == "Start":
+            self.smu_thread.resume_smu()
             self.protocol = STMprotocol(self.entry_COM.get())
             self.button_start_stop['text'] = "Stop"
             self.res_1_value = float(self.entry_res_1.get())
@@ -401,6 +482,9 @@ class App:
             self.pause = False
 
         elif self.button_start_stop['text'] == "Stop":
+            self.smu_thread.pause_smu()
+            with self.queue.mutex:
+                self.queue.queue.clear()
             self.protocol.ser.close()
             self.button_start_stop['text'] = "Start"
             self.pause = True
