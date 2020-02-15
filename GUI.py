@@ -24,6 +24,12 @@ else:
 
 matplotlib.style.use('ggplot')
 
+SMU_ID = 'USB0::0x0957::0x8B18::MY51141538::0::INSTR'
+DEFAULT_COM_PORT = "COM5"
+
+# In this experint is used only to measure voltage
+DEFAULT_ANALOG_2_RES = "999999"
+
 
 # matplotlib.use("TkAgg")
 
@@ -87,7 +93,7 @@ class SmuThreadedTask(threading.Thread):
 
         # Set up smu
         self.rm = visa.ResourceManager()
-        self.smu = self.rm.open_resource('USB0::0x0957::0x4318::MY51070004::0::INSTR')
+        self.smu = self.rm.open_resource(SMU_ID)
         self.smu_volt = 0
         self.smu_curr = 0
         self.pause = True
@@ -99,30 +105,38 @@ class SmuThreadedTask(threading.Thread):
         print("SMU setup...")
 
         print("Reset smu: ", self.smu.write("*RST"))
+        print("Clear status byte reg: ", self.smu.write("*CLS"))
 
-        print("Set volatge range: ", self.smu.write("VOLT:RANG R20V, (@1)"))
-        print("Get voltage range: ", self.smu.query("VOLT:RANG? (@1)"))
 
-        print("Set current range: ", self.smu.write("CURR:RANG R1mA, (@1)"))
-        print("Get current range: ", self.smu.query("CURR:RANG? (@1)"))
+        print("Set source output shape: ", self.smu.write("SOUR1:FUNC DC"))
+        print("Get source output shape: ", self.smu.query("SOUR1:FUNC?"))
 
-        print("Set current limit: ", self.smu.write("CURR:LIM 0.001, (@1)"))
-        print("Get current limit: ", self.smu.query("CURR:LIM? (@1)"))
+        print("Set source output mode: ", self.smu.write("SOUR1:FUNC:MODE VOLT"))
+        print("Get source output mode: ", self.smu.query("SOUR1:FUNC:MODE?"))
 
-        print("Set NPLC VOLT: ", self.smu.write("SENS:VOLT:NPLC 50, (@1)"))
-        print("Get NPLC VOLT: ", self.smu.query("SENS:VOLT:NPLC? (@1)"))
+        print("Set voltage range: ", self.smu.write("SOUR1:VOLT:RANG 20"))
+        print("Get voltage range: ", self.smu.query("SOUR1:VOLT:RANG?"))
 
-        print("Set NPLC CURR: ", self.smu.write("SENS:CURR:NPLC 50, (@1)"))
-        print("Get NPLC CURR: ", self.smu.query("SENS:CURR:NPLC? (@1)"))
+        print("Set current range: ", self.smu.write("SENS1:CURR:RANGE 0.001"))
+        print("Get current range: ", self.smu.query("SENS1:CURR:RANGE?"))
+
+        print("Set current limit: ", self.smu.write("SENS1:CURR:PROT 0.001"))
+        print("Get current limit: ", self.smu.query("SENS1:CURR:PROT?"))
+
+        print("Set integration time V: ", self.smu.write("SENS1:VOLT:APER 1"))
+        print("Get integration time V: ", self.smu.query("SENS1:VOLT:APER?"))
+
+        print("Set integration time I: ", self.smu.write("SENS1:CURR:APER 1"))
+        print("Get integration time I: ", self.smu.query("SENS1:CURR:APER?"))
 
         print("Source voltage...")
 
-        print("Source voltage: ", self.smu.write("VOLT 4.0, (@1)"))
-        print("Get sourced voltage: ", self.smu.query("VOLT? (@1)"))
+        print("Set sourced voltage: ", self.smu.write("SOUR1:VOLT 4.05"))
+        print("Get sourced voltage: ", self.smu.query("SOUR1:VOLT?"))
 
         print("Enable output...")
-        print("Enable output: ", self.smu.write("OUTP 1, (@1)"))
-        print("Is output enabled: ", self.smu.query("OUTP? (@1)"))
+        print("Set output on: ", self.smu.write("OUTPUT1 ON"))
+        print("Is output on?: ", self.smu.query("OUTPUT1?"))
 
     def pause_smu(self):
         self.pause = True
@@ -131,8 +145,8 @@ class SmuThreadedTask(threading.Thread):
         self.pause = False
 
     def smu_measure(self):
-        self.smu_volt = float(self.smu.query("MEAS:VOLT? (@1)")[:-2])
-        self.smu_curr = float(self.smu.query("MEAS:CURR? (@1)")[:-2])
+        self.smu_volt = float(self.smu.query("MEAS:VOLT? (@1)")[:-1])
+        self.smu_curr = float(self.smu.query("MEAS:CURR? (@1)")[:-1])
 
     def close_smu(self):
         self.smu.close()
@@ -321,9 +335,9 @@ class App:
         # Initial values
         self.res_1_value = 0
         self.res_2_value = 0
-        self.entry_COM.insert(0, "Write serial port")
+        self.entry_COM.insert(0, DEFAULT_COM_PORT)
         self.entry_res_1.insert(0, "0.0")
-        self.entry_res_2.insert(0, "0.0")
+        self.entry_res_2.insert(0, DEFAULT_ANALOG_2_RES)
 
         # Animation
         self.ani = animation.FuncAnimation(self.figure_1, self.animate, interval=2000)
