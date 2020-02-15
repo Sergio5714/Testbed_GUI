@@ -15,6 +15,8 @@ import visa
 import queue as Queue
 import threading
 
+import statistics
+
 if sys.version_info[0] < 3:
     import Tkinter as tk
 else:
@@ -86,8 +88,8 @@ class SmuThreadedTask(threading.Thread):
         # Set up smu
         self.rm = visa.ResourceManager()
         self.smu = self.rm.open_resource('USB0::0x0957::0x4318::MY51070004::0::INSTR')
-        self.smu_volt = '0'
-        self.smu_curr = '0'
+        self.smu_volt = 0
+        self.smu_curr = 0
         self.pause = True
         self.setup_smu()
 
@@ -95,6 +97,8 @@ class SmuThreadedTask(threading.Thread):
     def setup_smu(self):
         # Full setup
         print("SMU setup...")
+
+        print("Reset smu: ", self.smu.write("*RST"))
 
         print("Set volatge range: ", self.smu.write("VOLT:RANG R20V, (@1)"))
         print("Get voltage range: ", self.smu.query("VOLT:RANG? (@1)"))
@@ -105,12 +109,15 @@ class SmuThreadedTask(threading.Thread):
         print("Set current limit: ", self.smu.write("CURR:LIM 0.001, (@1)"))
         print("Get current limit: ", self.smu.query("CURR:LIM? (@1)"))
 
-        print("Set NPLC: ", self.smu.write("SENS:VOLT:NPLC 50, (@1)"))
-        print("Get NPLC: ", self.smu.query("SENS:VOLT:NPLC? (@1)"))
+        print("Set NPLC VOLT: ", self.smu.write("SENS:VOLT:NPLC 50, (@1)"))
+        print("Get NPLC VOLT: ", self.smu.query("SENS:VOLT:NPLC? (@1)"))
+
+        print("Set NPLC CURR: ", self.smu.write("SENS:CURR:NPLC 50, (@1)"))
+        print("Get NPLC CURR: ", self.smu.query("SENS:CURR:NPLC? (@1)"))
 
         print("Source voltage...")
 
-        print("Source voltage: ", self.smu.write("VOLT 4.1, (@1)"))
+        print("Source voltage: ", self.smu.write("VOLT 4.0, (@1)"))
         print("Get sourced voltage: ", self.smu.query("VOLT? (@1)"))
 
         print("Enable output...")
@@ -124,8 +131,8 @@ class SmuThreadedTask(threading.Thread):
         self.pause = False
 
     def smu_measure(self):
-        self.smu_volt = self.smu.query("MEAS:VOLT? (@1)")[:-2]
-        self.smu_curr = self.smu.query("MEAS:CURR? (@1)")[:-2]
+        self.smu_volt = float(self.smu.query("MEAS:VOLT? (@1)")[:-2])
+        self.smu_curr = float(self.smu.query("MEAS:CURR? (@1)")[:-2])
 
     def close_smu(self):
         self.smu.close()
@@ -134,7 +141,9 @@ class SmuThreadedTask(threading.Thread):
     def run(self):
         while True:
             if self.pause is False:
+                # Measure I and V
                 self.smu_measure()
+                # Put data ina queue
                 self.queue.put([self.smu_volt, self.smu_curr])
             else:
                 time.sleep(0.1)
@@ -287,6 +296,7 @@ class App:
         self.axes_1 = self.figure_1.add_subplot(131)
         self.axes_2 = self.figure_1.add_subplot(132)
         self.axes_3 = self.figure_1.add_subplot(133)
+        self.axes_3_twin = self.axes_3.twinx()
 
         # Create containers for graphs
         self.graph_container_1 = Frame(self.master)
@@ -328,16 +338,18 @@ class App:
 
         self.voltage_prediction = [0, 0]
 
+        # Create objects for SMU support
         self.queue = Queue.Queue()
         self.smu_thread = SmuThreadedTask(self.queue)
         self.smu_thread.start()
-        self.msg = []
+        self.smu_msg = [0, 0]
 
     def process_data_from_smu(self):
         try:
-            self.msg = self.queue.get(0)
+            self.smu_msg = self.queue.get(0)
             # Show result of the task if needed
             print("Data from SMU")
+
         except Queue.Empty:
             print("No new data from SMU")
 
@@ -365,8 +377,12 @@ class App:
 
     def animate(self, arg2):
         if self.pause is False:
-            self.get_data(self)
+            # Look for the data from SMU
             self.process_data_from_smu()
+            # Get data from Control board
+            self.get_data(self)
+
+            # Get the data from file to plot
             file = open(self.data_file_name, 'r')
             n = 60 * 10
             pull_data = self.tail(file, n)
@@ -377,40 +393,61 @@ class App:
             temp_3_val = []
             volt_1_val = []
             volt_2_val = []
+            smu_volt_val = []
+            smu_curr_val = []
             for eachLine in data_array:
                 if len(eachLine) > 1:
-                    time, temp_1, temp_2, temp_3, volt_1, volt_2, res_1, res_2 = eachLine.split(',')
+                    time, temp_1, temp_2, temp_3, volt_1, volt_2, res_1, res_2, smu_volt, smu_curr = eachLine.split(',')
                     time_val.append(datetime.datetime.strptime(time, '%d.%m.%Y %H:%M:%S'))
                     temp_1_val.append(float(temp_1))
                     temp_2_val.append(float(temp_2))
                     temp_3_val.append(float(temp_3))
                     volt_1_val.append(float(volt_1))
                     volt_2_val.append(float(volt_2))
+                    smu_volt_val.append(float(smu_volt))
+                    smu_curr_val.append(float(smu_curr))
 
             # Convert from V to mV
             volt_1_val = [x * 1000 for x in volt_1_val]
             volt_2_val = [x * 1000 for x in volt_2_val]
+            # Convert from A to mA
+            smu_curr_val = [x * 1000 for x in smu_curr_val]
 
+            # Plot temperatures
             self.axes_1.clear()
             self.axes_1.plot(time_val, temp_1_val, color="blue")
             self.axes_1.plot(time_val, temp_2_val, color="green")
             self.axes_1.plot(time_val, temp_3_val, color="red")
-            self.axes_1.set_title("Temperatures", fontsize=self.font_title_size)
+            self.axes_1.set_title("Temperatures, C", fontsize=self.font_title_size)
 
+            # Plot voltages
             self.axes_2.clear()
             self.axes_2.plot(time_val, volt_1_val, color="purple")
             self.axes_2.plot(time_val, volt_2_val, color="brown")
-            self.axes_2.set_title("Voltages", fontsize=self.font_title_size)
+            self.axes_2.set_title("Voltages, mV", fontsize=self.font_title_size)
 
-            # Format axes
+            # Plot smu current
+            self.axes_3.clear()
+            self.axes_3_twin.clear()
+            self.axes_3.plot(time_val, smu_curr_val, color="red")
+            # Plot smu voltage
+            self.axes_3_twin.plot(time_val, smu_volt_val, color="blue")
+            # Add horizontal lines to plot average current
+            self.axes_3.axhline(statistics.mean(smu_curr_val), linestyle='--', color="red")
+            self.axes_3.set_title("SMU current (mA) and voltage (V)", fontsize=self.font_title_size)
+
+            # Format axes for data
             self.axes_1.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%M:%S'))
             self.axes_1.tick_params(axis='x', rotation=45)
             self.axes_2.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%M:%S'))
             self.axes_2.tick_params(axis='x', rotation=45)
+            self.axes_3.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%M:%S'))
+            self.axes_3.tick_params(axis='x', rotation=45)
             self.axes_1.xaxis_date()
             self.axes_2.xaxis_date()
+            self.axes_3.xaxis_date()
 
-            # Add horizontal lines
+            # Add horizontal lines to voltage plot
             self.axes_2.axhline(self.voltage_prediction[0], linestyle='--', color="purple")
             self.axes_2.axhline(self.voltage_prediction[1], linestyle='--', color="brown")
 
@@ -454,7 +491,8 @@ class App:
         file = open(self.data_file_name, 'a+')
         file.write(time_str + ',' + "{:.7f}".format(temp_1[0]) + ',' + "{:.7f}".format(temp_2[0]) + ',' +
                    "{:.7f}".format(temp_3[0]) + ',' + "{:.7f}".format(volt_1[0]) + ',' + "{:.7f}".format(volt_2[0]) +
-                   ',' + "{:.7f}".format(self.res_1_value) + ',' + "{:.7f}".format(self.res_2_value) + '\n')
+                   ',' + "{:.7f}".format(self.res_1_value) + ',' + "{:.7f}".format(self.res_2_value) + ',' +
+                   "{:.10f}".format(self.smu_msg[0]) + ',' + "{:.10f}".format(self.smu_msg[1]) + '\n')
         file.close()
 
     def update_button_callback(self, arg2):
