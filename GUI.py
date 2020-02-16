@@ -269,8 +269,8 @@ class App:
         self.entry_temp_2.grid(row=3, column=1)
 
         # Create checkButton
-        self.var = IntVar()
-        self.exp_check_button = Checkbutton(self.bottom_frame, text='Experiment mode', variable=self.var,
+        self.exp_flag = IntVar()
+        self.exp_check_button = Checkbutton(self.bottom_frame, text='Experiment mode', variable=self.exp_flag,
                                             fg="black", bg="white", )
         self.exp_check_button.grid(row=3, column=2)
         self.exp_check_button.config(font=(updating_label_font_type, updating_label_font_size))
@@ -332,12 +332,17 @@ class App:
         # except ValueError:
         #     print("COM error")
 
-        # Initial values
+        # Initial values for resistanses and temperatures
         self.res_1_value = 0
         self.res_2_value = 0
         self.entry_COM.insert(0, DEFAULT_COM_PORT)
         self.entry_res_1.insert(0, "0.0")
         self.entry_res_2.insert(0, DEFAULT_ANALOG_2_RES)
+
+        self.target_temp_cold = 25
+        self.target_temp_hot = 25
+        self.entry_temp_1.insert(0, "25.0")
+        self.entry_temp_2.insert(0, "25.0")
 
         # Animation
         self.ani = animation.FuncAnimation(self.figure_1, self.animate, interval=2000)
@@ -371,7 +376,7 @@ class App:
         R = R_tem / (1 + R_tem * alpha ** 2 * T / (r_load + r_tem)) + 1
         return R
 
-    def calc_theoretical_voltages(self, arg2):
+    def calc_theoretical_voltages(self):
         answer = []
         try:
             temp_cold = float(self.entry_temp_1.get())
@@ -396,8 +401,13 @@ class App:
             # Get data from Control board
             self.get_data(self)
 
-            # Get the data from file to plot
+            # Check that file exists
+            if not os.path.exists(self.data_file_name):
+            	print("There is no file with data.")
+            	return
+
             file = open(self.data_file_name, 'r')
+
             n = 60 * 10
             pull_data = self.tail(file, n)
             data_array = pull_data[0]
@@ -502,6 +512,12 @@ class App:
         volt_1 = self.protocol.send_command(0x03, [0])
         volt_2 = self.protocol.send_command(0x03, [1])
         time_str = datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S')
+        # Check that file exists
+        if not os.path.exists(self.data_file_name):
+            print("File does not exist. Creating new...")
+            file = open(self.data_file_name, 'w+')
+            file.close()
+
         file = open(self.data_file_name, 'a+')
         file.write(time_str + ',' + "{:.7f}".format(temp_1[0]) + ',' + "{:.7f}".format(temp_2[0]) + ',' +
                    "{:.7f}".format(temp_3[0]) + ',' + "{:.7f}".format(volt_1[0]) + ',' + "{:.7f}".format(volt_2[0]) +
@@ -509,14 +525,24 @@ class App:
                    "{:.10f}".format(self.smu_msg[0]) + ',' + "{:.10f}".format(self.smu_msg[1]) + '\n')
         file.close()
 
+    def update_data_file_name(self):
+        # File name for data and final data
+        if self.exp_flag.get():
+            self.data_file_name = 'Results/exp_data_' + "{:.2f}".format(self.res_1_value) + '_' + "{:.2f}".format(
+                self.res_2_value)+ '_' + "{:.1f}".format(self.target_temp_cold) + '_' + "{:.1f}".format(self.target_temp_hot) + '.txt'
+        else:
+            self.data_file_name = 'Results/data_' + datetime.datetime.now().strftime('%d_%m_%Y_%H_%M') + '.txt'
+
     def update_button_callback(self, arg2):
-        target_temp_cold = float(self.entry_temp_1.get())
-        target_temp_hot = float(self.entry_temp_2.get())
+
+        self.target_temp_cold = float(self.entry_temp_1.get())
+        self.target_temp_hot = float(self.entry_temp_2.get())
         self.res_1_value = float(self.entry_res_1.get())
         self.res_2_value = float(self.entry_res_2.get())
-        self.voltage_prediction = self.calc_theoretical_voltages(self)
-        self.protocol.send_command(0x04, [target_temp_hot])
-        self.protocol.send_command(0x05, [target_temp_cold])
+        self.voltage_prediction = self.calc_theoretical_voltages()
+        self.update_data_file_name()
+        self.protocol.send_command(0x04, [self.target_temp_hot])
+        self.protocol.send_command(0x05, [self.target_temp_cold])
 
     def button_start_stop_callback(self, arg2):
         if self.button_start_stop['text'] == "Start":
@@ -525,12 +551,9 @@ class App:
             self.button_start_stop['text'] = "Stop"
             self.res_1_value = float(self.entry_res_1.get())
             self.res_2_value = float(self.entry_res_2.get())
-            # File name for data and final data
-            if self.var.get():
-                self.data_file_name = 'exp_data_' + "{:.2f}".format(self.res_1_value) + '_' + "{:.2f}".format(
-                    self.res_2_value) + '.txt'
-            else:
-                self.data_file_name = 'data_' + datetime.datetime.now().strftime('%d_%m_%Y_%H_%M') + '.txt'
+            self.target_temp_cold = float(self.entry_temp_1.get())
+            self.target_temp_hot = float(self.entry_temp_2.get())
+            self.update_data_file_name()
             self.pause = False
 
         elif self.button_start_stop['text'] == "Stop":
