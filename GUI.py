@@ -132,6 +132,7 @@ class SmuThreadedTask(threading.Thread):
         print("Source voltage...")
 
         print("Set sourced voltage: ", self.smu.write("SOUR1:VOLT 4.05"))
+        # print("Set sourced voltage: ", self.smu.write("SOUR1:VOLT 3.7"))
         print("Get sourced voltage: ", self.smu.query("SOUR1:VOLT?"))
 
         print("Enable output...")
